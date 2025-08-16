@@ -1,0 +1,15 @@
+# Coolify CLI Configuration Example
+# Copy this file to ~/.coolify-cli/config.yaml and update with your settings
+
+# Your Coolify API key (get this from your Coolify instance)
+api_key: "your-api-key-here"
+
+# Your Coolify instance URL (without /api/v1)
+# Examples:
+#   - https://coolify.your (hosted)
+#   - https://coolify.mycompany.com (self-hosted)
+#   - http://localhost:8000 (local development)
+host_url: "https://app.coolify.io"
+
+# API path (usually /api/v1, change only if your Coolify instance uses different API versioning)
+api_path: "/api/v1"
