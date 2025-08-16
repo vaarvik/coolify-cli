@@ -43,6 +43,7 @@ This will:
    tar xzf coolify-cli.tar.gz
    sudo mv coolify-cli-* /usr/local/bin/coolify-cli
    ```
+3. Add this to your .zshrc if you want to be really cool and just do "cc" in the terminal: `alias cc='coolify-cli'`
 
 ### Build from Source
 
