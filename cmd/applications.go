@@ -21,9 +21,14 @@ var applicationsListCmd = &cobra.Command{
 	RunE:  runApplicationsListCommand,
 }
 
+var showRaw bool
+
 func init() {
 	rootCmd.AddCommand(applicationsCmd)
 	applicationsCmd.AddCommand(applicationsListCmd)
+
+	// Add flags
+	applicationsListCmd.Flags().BoolVar(&showRaw, "raw", false, "Show all raw data from API")
 }
 
 func runApplicationsListCommand(cmd *cobra.Command, args []string) error {
@@ -49,6 +54,17 @@ func runApplicationsListCommand(cmd *cobra.Command, args []string) error {
 		fmt.Printf("    Status: %s\n", app.Status)
 		if app.URL != "" {
 			fmt.Printf("    URL: %s\n", app.URL)
+		}
+
+		if showRaw {
+			fmt.Println("    Raw Data:")
+			for key, value := range app.RawData {
+				// Skip fields we already showed
+				if key == "uuid" || key == "name" || key == "status" || key == "url" {
+					continue
+				}
+				fmt.Printf("      %s: %v\n", key, value)
+			}
 		}
 		fmt.Println()
 	}

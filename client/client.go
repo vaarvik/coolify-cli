@@ -112,10 +112,11 @@ func (c *Client) makeRequest(method, endpoint string) (*http.Response, error) {
 
 // Application represents a Coolify application
 type Application struct {
-	UUID     string `json:"uuid"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	URL    string `json:"url,omitempty"`
+	UUID     string                 `json:"uuid"`
+	Name     string                 `json:"name"`
+	Status   string                 `json:"status"`
+	URL      string                 `json:"url,omitempty"`
+	RawData  map[string]interface{} `json:"-"` // Store any additional fields from API
 }
 
 // GetApplications fetches all applications
@@ -131,9 +132,28 @@ func (c *Client) GetApplications() ([]Application, error) {
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var apps []Application
-	if err := json.NewDecoder(resp.Body).Decode(&apps); err != nil {
+	// First decode into raw JSON to capture all fields
+	var rawData []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&rawData); err != nil {
 		return nil, fmt.Errorf("failed to parse applications response: %w", err)
+	}
+
+	// Convert to Application structs while preserving raw data
+	var apps []Application
+	for _, raw := range rawData {
+		var app Application
+		// Convert back to JSON
+		rawJSON, err := json.Marshal(raw)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal raw data: %w", err)
+		}
+		// Decode into Application struct
+		if err := json.Unmarshal(rawJSON, &app); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal application: %w", err)
+		}
+		// Store raw data
+		app.RawData = raw
+		apps = append(apps, app)
 	}
 
 	return apps, nil
