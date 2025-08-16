@@ -20,36 +20,65 @@ A simple command-line interface for interacting with your Coolify instance.
 
 ## Configuration
 
+Get a **token** from your Coolify dashboard (Cloud or self-hosted) at `/security/api-tokens`
+
+### Cloud
+
 1. Initialize the configuration:
    ```bash
    ./coolify-cli config init
    ```
 
-2. Edit the configuration file at `~/.coolify-cli/config.json`:
-   ```json
-   {
-     "instances": [
-       {
-         "fqdn": "https://app.coolify.io",
-         "name": "cloud",
-         "token": "your-token-here"
-       },
-       {
-         "default": true,
-         "fqdn": "https://coolify.yourdomain.com", 
-         "name": "yourdomain",
-         "token": "your-token-here"
-       }
-     ]
-   }
+2. Add the token:
+   ```bash
+   ./coolify-cli instances set token cloud <token>
    ```
 
-3. Test your configuration:
-   ```bash
-   ./coolify-cli config test
-   ```
+### Self-hosted
+
+Add your self-hosted instance:
+```bash
+./coolify-cli instances add -d <name> <fqdn> <token>
+```
+
+Replace `<name>` with the name you want to give to the instance.
+Replace `<fqdn>` with the fully qualified domain name of your Coolify instance.
+
+### Change default instance
+
+You can change the default instance with:
+```bash
+./coolify-cli instances set default <name>
+```
+
+### Test your configuration
+
+```bash
+./coolify-cli config test
+```
 
 ## Usage
+
+### Instance Management
+```bash
+# List all configured instances
+./coolify-cli instances list
+
+# Add a new self-hosted instance
+./coolify-cli instances add myserver https://coolify.mycompany.com my-token-123
+
+# Add and set as default
+./coolify-cli instances add -d myserver https://coolify.mycompany.com my-token-123
+
+# Set token for existing instance
+./coolify-cli instances set token cloud my-cloud-token
+
+# Change default instance
+./coolify-cli instances set default myserver
+
+# Remove an instance
+./coolify-cli instances remove myserver
+```
 
 ### View Configuration
 ```bash
@@ -58,7 +87,11 @@ A simple command-line interface for interacting with your Coolify instance.
 
 ### Fetch Application Logs
 ```bash
+# Use default instance
 ./coolify-cli logs nk4kcskcsswg0wskk88skcsg
+
+# Use specific instance
+./coolify-cli logs -i myserver nk4kcskcsswg0wskk88skcsg
 ```
 
 ### Follow Logs (Real-time)
@@ -70,6 +103,7 @@ A simple command-line interface for interacting with your Coolify instance.
 ```bash
 ./coolify-cli --help
 ./coolify-cli logs --help
+./coolify-cli instances --help
 ```
 
 ## Configuration File
@@ -86,7 +120,7 @@ The CLI uses a JSON configuration file located at `~/.coolify-cli/config.json`:
     },
     {
       "fqdn": "http://localhost:8000",
-      "name": "localhost", 
+      "name": "localhost",
       "token": ""
     },
     {

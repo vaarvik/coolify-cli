@@ -46,17 +46,17 @@ func init() {
 }
 
 func runConfigShowCommand(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load()
+	cfg, err := config.LoadWithoutValidation()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	
+
 	homeDir, _ := os.UserHomeDir()
 	fmt.Println("Current Configuration:")
 	fmt.Printf("  Config file: %s\n", filepath.Join(homeDir, ".coolify-cli", "config.json"))
 	fmt.Printf("  Last update check: %s\n", cfg.LastUpdateCheckTime.Format("2006-01-02 15:04:05"))
 	fmt.Println("\nInstances:")
-	
+
 	for i, instance := range cfg.Instances {
 		prefix := "  "
 		if instance.Default {
@@ -65,7 +65,7 @@ func runConfigShowCommand(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s[%d] %s\n", prefix, i+1, instance.Name)
 		fmt.Printf("    FQDN: %s\n", instance.FQDN)
 		fmt.Printf("    Full URL: %s\n", instance.GetBaseURL())
-		
+
 		// Mask the token for security
 		token := instance.Token
 		if len(token) > 8 {
@@ -105,14 +105,14 @@ func runConfigInitCommand(cmd *cobra.Command, args []string) error {
 
 	configDir := filepath.Join(homeDir, ".coolify-cli")
 	configPath := filepath.Join(configDir, "config.json")
-	
+
 	// Check if config file already exists
 	if _, err := os.Stat(configPath); err == nil {
 		fmt.Printf("Configuration file already exists at: %s\n", configPath)
 		fmt.Println("Use 'coolify-cli config show' to view current settings.")
 		return nil
 	}
-	
+
 	// Try to create the default config (this will handle directory creation)
 	_, err = config.Load() // This will trigger createDefaultConfig if file doesn't exist
 	if err != nil {

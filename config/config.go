@@ -30,12 +30,12 @@ func (c *Config) GetDefaultInstance() *Instance {
 			return &c.Instances[i]
 		}
 	}
-	
+
 	// If no default is set, return the first instance
 	if len(c.Instances) > 0 {
 		return &c.Instances[0]
 	}
-	
+
 	return nil
 }
 
@@ -58,6 +58,16 @@ var globalConfig *Config
 
 // Load reads the configuration from the config file
 func Load() (*Config, error) {
+	return LoadWithValidation(true)
+}
+
+// LoadWithoutValidation loads config without validating tokens (useful for management commands)
+func LoadWithoutValidation() (*Config, error) {
+	return LoadWithValidation(false)
+}
+
+// LoadWithValidation reads the configuration with optional validation
+func LoadWithValidation(validateTokens bool) (*Config, error) {
 	if globalConfig != nil {
 		return globalConfig, nil
 	}
@@ -67,7 +77,7 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
-	
+
 	configDir := filepath.Join(homeDir, ".coolify-cli")
 	configPath := filepath.Join(configDir, "config.json")
 
@@ -93,14 +103,17 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("no Coolify instances configured. Please add at least one instance to %s", configPath)
 	}
 
-	// Check that default instance has a token
-	defaultInstance := config.GetDefaultInstance()
-	if defaultInstance == nil {
-		return nil, fmt.Errorf("no default instance found in config")
-	}
-	
-	if defaultInstance.Token == "" {
-		return nil, fmt.Errorf("token is required for default instance '%s'. Please set it in %s", defaultInstance.Name, configPath)
+	// Only validate tokens if requested (skip for management commands)
+	if validateTokens {
+		// Check that default instance has a token
+		defaultInstance := config.GetDefaultInstance()
+		if defaultInstance == nil {
+			return nil, fmt.Errorf("no default instance found in config")
+		}
+
+		if defaultInstance.Token == "" {
+			return nil, fmt.Errorf("token is required for default instance '%s'. Please set it in %s", defaultInstance.Name, configPath)
+		}
 	}
 
 	globalConfig = &config
@@ -116,23 +129,13 @@ func createDefaultConfig(configDir string) (*Config, error) {
 
 	configPath := filepath.Join(configDir, "config.json")
 
-	// Create default config structure
+	// Create default config structure with only cloud instance
 	defaultConfig := Config{
 		Instances: []Instance{
 			{
 				FQDN:    "https://app.coolify.io",
 				Name:    "cloud",
 				Token:   "",
-			},
-			{
-				FQDN:    "http://localhost:8000",
-				Name:    "localhost",
-				Token:   "",
-			},
-			{
-				FQDN:    "https://coolify.yourdomain.com",
-				Name:    "yourdomain",
-				Token:   "your-token-here",
 				Default: true,
 			},
 		},
@@ -158,4 +161,101 @@ func createDefaultConfig(configDir string) (*Config, error) {
 // GetConfig returns the loaded configuration
 func GetConfig() *Config {
 	return globalConfig
+}
+
+// Save writes the configuration to file
+func (c *Config) Save() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	configPath := filepath.Join(homeDir, ".coolify-cli", "config.json")
+
+	// Update last update check time
+	c.LastUpdateCheckTime = time.Now()
+
+	// Marshal to pretty JSON
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
+}
+
+// AddInstance adds a new instance to the configuration
+func (c *Config) AddInstance(name, fqdn, token string, isDefault bool) error {
+	// Check if instance name already exists
+	if c.GetInstanceByName(name) != nil {
+		return fmt.Errorf("instance '%s' already exists", name)
+	}
+
+	// If this is being set as default, unset other defaults
+	if isDefault {
+		for i := range c.Instances {
+			c.Instances[i].Default = false
+		}
+	}
+
+	// Add new instance
+	newInstance := Instance{
+		FQDN:    fqdn,
+		Name:    name,
+		Token:   token,
+		Default: isDefault,
+	}
+
+	c.Instances = append(c.Instances, newInstance)
+	return nil
+}
+
+// SetInstanceToken sets the token for an existing instance
+func (c *Config) SetInstanceToken(name, token string) error {
+	instance := c.GetInstanceByName(name)
+	if instance == nil {
+		return fmt.Errorf("instance '%s' not found", name)
+	}
+
+	instance.Token = token
+	return nil
+}
+
+// SetDefaultInstance sets an instance as the default
+func (c *Config) SetDefaultInstance(name string) error {
+	targetInstance := c.GetInstanceByName(name)
+	if targetInstance == nil {
+		return fmt.Errorf("instance '%s' not found", name)
+	}
+
+	// Unset all defaults first
+	for i := range c.Instances {
+		c.Instances[i].Default = false
+	}
+
+	// Set the target as default
+	targetInstance.Default = true
+	return nil
+}
+
+// RemoveInstance removes an instance from the configuration
+func (c *Config) RemoveInstance(name string) error {
+	for i, instance := range c.Instances {
+		if instance.Name == name {
+			c.Instances = append(c.Instances[:i], c.Instances[i+1:]...)
+
+			// If we removed the default instance and there are others, make the first one default
+			if instance.Default && len(c.Instances) > 0 {
+				c.Instances[0].Default = true
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("instance '%s' not found", name)
 }
