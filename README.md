@@ -12,10 +12,36 @@ A simple command-line interface for interacting with your Coolify instance.
 
 ## Installation
 
-1. Clone this repository
-2. Build the CLI:
+### Quick Install (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vaarvik/coolify-cli/main/install.sh | bash
+```
+
+This will:
+- Install the CLI to `/usr/local/bin/coolify-cli`
+- Create configuration at `~/.coolify-cli/config.json`
+
+### Manual Installation
+
+1. Download the latest release for your platform from [GitHub Releases](https://github.com/vaarvik/coolify-cli/releases)
+2. Extract and move to `/usr/local/bin`:
    ```bash
-   go build -o coolify-cli
+   tar xzf coolify-cli-*.tar.gz
+   sudo mv coolify-cli /usr/local/bin/
+   ```
+
+### Build from Source
+
+1. Clone this repository
+2. Install system-wide:
+   ```bash
+   make install
+   ```
+
+   Or for development:
+   ```bash
+   make install-local
    ```
 
 ## Configuration
