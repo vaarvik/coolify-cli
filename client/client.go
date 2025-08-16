@@ -110,6 +110,35 @@ func (c *Client) makeRequest(method, endpoint string) (*http.Response, error) {
 	return resp, nil
 }
 
+// Application represents a Coolify application
+type Application struct {
+	UUID     string `json:"uuid"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	URL    string `json:"url,omitempty"`
+}
+
+// GetApplications fetches all applications
+func (c *Client) GetApplications() ([]Application, error) {
+	resp, err := c.makeRequest("GET", "/applications")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var apps []Application
+	if err := json.NewDecoder(resp.Body).Decode(&apps); err != nil {
+		return nil, fmt.Errorf("failed to parse applications response: %w", err)
+	}
+
+	return apps, nil
+}
+
 // GetApplicationLogs fetches logs for a specific application
 func (c *Client) GetApplicationLogs(applicationID string) ([]ParsedLogLine, error) {
 	endpoint := fmt.Sprintf("/applications/%s/logs", applicationID)
