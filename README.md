@@ -25,10 +25,23 @@ This will:
 ### Manual Installation
 
 1. Download the latest release for your platform from [GitHub Releases](https://github.com/vaarvik/coolify-cli/releases)
-2. Extract and move to `/usr/local/bin`:
+2. Install (replace platform with your system):
    ```bash
-   tar xzf coolify-cli-*.tar.gz
-   sudo mv coolify-cli /usr/local/bin/
+   # For macOS Intel (darwin-amd64)
+   curl -L -o coolify-cli.tar.gz https://github.com/vaarvik/coolify-cli/releases/download/v0.0.1/coolify-cli-darwin-amd64.tar.gz
+
+   # For macOS Apple Silicon (darwin-arm64)
+   curl -L -o coolify-cli.tar.gz https://github.com/vaarvik/coolify-cli/releases/download/v0.0.1/coolify-cli-darwin-arm64.tar.gz
+
+   # For Linux (linux-amd64)
+   curl -L -o coolify-cli.tar.gz https://github.com/vaarvik/coolify-cli/releases/download/v0.0.1/coolify-cli-linux-amd64.tar.gz
+
+   # For Windows (windows-amd64)
+   curl -L -o coolify-cli.tar.gz https://github.com/vaarvik/coolify-cli/releases/download/v0.0.1/coolify-cli-windows-amd64.exe.tar.gz
+
+   # Then for all platforms except Windows:
+   tar xzf coolify-cli.tar.gz
+   sudo mv coolify-cli-* /usr/local/bin/coolify-cli
    ```
 
 ### Build from Source
