@@ -81,7 +81,13 @@ func runConfigShowCommand(cmd *cobra.Command, args []string) error {
 }
 
 func runConfigTestCommand(cmd *cobra.Command, args []string) error {
-	fmt.Println("Testing connection to Coolify API...")
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	defaultInstance := cfg.GetDefaultInstance()
+	fmt.Printf("Testing connection to Coolify instance '%s' at %s...\n", defaultInstance.Name, defaultInstance.FQDN)
 
 	c, err := client.NewClient()
 	if err != nil {
@@ -89,11 +95,27 @@ func runConfigTestCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := c.TestConnection(); err != nil {
-		fmt.Printf("❌ Connection failed: %v\n", err)
+		if strings.Contains(err.Error(), "failed to connect") {
+			fmt.Printf("❌ Connection failed: Cannot reach Coolify instance\n")
+			fmt.Printf("🔗 Instance: %s (%s)\n", defaultInstance.Name, defaultInstance.FQDN)
+			fmt.Printf("\n💡 Troubleshooting:\n")
+			fmt.Printf("  • Check if the instance URL is correct and accessible\n")
+			fmt.Printf("  • Verify the instance is running and not behind a firewall\n")
+			fmt.Printf("  • Try accessing %s in your browser\n", defaultInstance.FQDN)
+			fmt.Printf("  • Check your internet connection\n")
+		} else if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "authentication failed") {
+			fmt.Printf("❌ Authentication failed: Invalid or expired token\n")
+			fmt.Printf("🔑 Instance: %s (%s)\n", defaultInstance.Name, defaultInstance.FQDN)
+			fmt.Printf("\n💡 Fix this by:\n")
+			fmt.Printf("  • Get a new token from %s/security/api-tokens\n", defaultInstance.FQDN)
+			fmt.Printf("  • Update it with: coolify-cli instances set token %s <new-token>\n", defaultInstance.Name)
+		} else {
+			fmt.Printf("❌ Connection failed: %v\n", err)
+		}
 		return err
 	}
 
-	fmt.Println("✅ Connection successful!")
+	fmt.Printf("✅ Connection successful to %s!\n", defaultInstance.Name)
 	return nil
 }
 

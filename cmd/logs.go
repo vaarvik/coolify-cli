@@ -5,6 +5,7 @@ import (
 	"coolify-cli/internal/formatter"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -82,6 +83,10 @@ func runLogsCommand(cmd *cobra.Command, args []string) error {
 func fetchLogs(c *client.Client, applicationID string, verbose bool) error {
 	logs, err := c.GetApplicationLogs(applicationID)
 	if err != nil {
+		// Check if it's a connection error
+		if strings.Contains(err.Error(), "failed to connect") {
+			return fmt.Errorf("❌ Connection failed: %w\n\n💡 Troubleshooting:\n  • Check if your Coolify instance is running and accessible\n  • Verify the instance URL is correct: run 'coolify-cli instances list'\n  • Ensure your token is valid: get a new one from /security/api-tokens", err)
+		}
 		return fmt.Errorf("failed to fetch logs: %w", err)
 	}
 
@@ -133,7 +138,12 @@ func followLogs(c *client.Client, applicationID string, verbose bool) error {
 		case <-ticker.C:
 			logs, err := c.GetApplicationLogs(applicationID)
 			if err != nil {
-				if verbose {
+				if strings.Contains(err.Error(), "failed to connect") {
+					fmt.Printf("❌ Connection lost to Coolify instance. Retrying...\n")
+					if verbose {
+						fmt.Printf("Details: %v\n", err)
+					}
+				} else if verbose {
 					fmt.Printf("Error fetching logs: %v\n", err)
 				}
 				continue

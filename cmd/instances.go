@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"coolify-cli/client"
 	"coolify-cli/config"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -75,6 +77,7 @@ Examples:
 
 var (
 	makeDefault bool
+	skipTest    bool
 )
 
 func init() {
@@ -92,6 +95,7 @@ func init() {
 
 	// Add flags
 	instancesAddCmd.Flags().BoolVarP(&makeDefault, "default", "d", false, "Make this instance the default")
+	instancesAddCmd.Flags().BoolVar(&skipTest, "skip-test", false, "Skip connection test when adding instance")
 }
 
 func runInstancesAddCommand(cmd *cobra.Command, args []string) error {
@@ -102,6 +106,45 @@ func runInstancesAddCommand(cmd *cobra.Command, args []string) error {
 	cfg, err := config.LoadWithoutValidation()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Test connection before adding (unless skipped)
+	if !skipTest {
+		fmt.Printf("🧪 Testing connection to %s...\n", fqdn)
+
+		// Create a temporary instance for testing
+		tempInstance := &config.Instance{
+			FQDN:  fqdn,
+			Name:  name,
+			Token: token,
+		}
+
+		// Create a temporary client
+		tempClient := &client.Client{}
+		tempClient.SetInstance(tempInstance)
+
+		if err := tempClient.TestConnection(); err != nil {
+			if strings.Contains(err.Error(), "failed to connect") {
+				fmt.Printf("❌ Connection test failed: Cannot reach %s\n", fqdn)
+				fmt.Printf("\n💡 Troubleshooting:\n")
+				fmt.Printf("  • Check if the URL is correct and accessible\n")
+				fmt.Printf("  • Verify the Coolify instance is running\n")
+				fmt.Printf("  • Try accessing %s in your browser\n", fqdn)
+				fmt.Printf("\nTo add anyway, use --skip-test flag\n")
+				return fmt.Errorf("connection test failed")
+			} else if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "authentication failed") {
+				fmt.Printf("❌ Authentication failed: Invalid token for %s\n", fqdn)
+				fmt.Printf("\n💡 Fix this by:\n")
+				fmt.Printf("  • Get a valid token from %s/security/api-tokens\n", fqdn)
+				fmt.Printf("\nTo add anyway, use --skip-test flag\n")
+				return fmt.Errorf("authentication failed")
+			} else {
+				fmt.Printf("⚠️  Connection test failed: %v\n", err)
+				fmt.Printf("Adding instance anyway...\n")
+			}
+		} else {
+			fmt.Printf("✅ Connection test successful!\n")
+		}
 	}
 
 	if err := cfg.AddInstance(name, fqdn, token, makeDefault); err != nil {

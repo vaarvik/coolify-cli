@@ -78,6 +78,16 @@ func NewClientForInstance(instanceName string) (*Client, error) {
 	}, nil
 }
 
+// SetInstance sets the instance for the client (used for testing)
+func (c *Client) SetInstance(instance *config.Instance) {
+	c.instance = instance
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{
+			Timeout: 30 * time.Second,
+		}
+	}
+}
+
 // makeRequest performs an HTTP request with Bearer token authentication
 func (c *Client) makeRequest(method, endpoint string) (*http.Response, error) {
 	url := fmt.Sprintf("%s%s", c.instance.GetBaseURL(), endpoint)
@@ -94,7 +104,7 @@ func (c *Client) makeRequest(method, endpoint string) (*http.Response, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+		return nil, fmt.Errorf("failed to connect to Coolify instance at %s: %w", c.instance.FQDN, err)
 	}
 
 	return resp, nil
