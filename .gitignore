@@ -59,8 +59,8 @@ coverage/
 .env.production.local
 
 # Config files (keep template, ignore actual config)
-config.yaml
-!config.example.yaml
+config.json
+!config.example.json
 
 # Temporary files
 tmp/

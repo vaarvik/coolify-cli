@@ -1,23 +1,57 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/spf13/viper"
+	"time"
 )
+
+// Instance represents a single Coolify instance configuration
+type Instance struct {
+	FQDN    string `json:"fqdn"`
+	Name    string `json:"name"`
+	Token   string `json:"token"`
+	Default bool   `json:"default,omitempty"`
+}
 
 // Config represents the CLI configuration structure
 type Config struct {
-	APIKey  string `mapstructure:"api_key" yaml:"api_key"`
-	HostURL string `mapstructure:"host_url" yaml:"host_url"`
-	APIPath string `mapstructure:"api_path" yaml:"api_path"`
+	Instances             []Instance `json:"instances"`
+	LastUpdateCheckTime   time.Time  `json:"lastupdatechecktime"`
 }
 
-// GetBaseURL returns the complete base URL for API calls
-func (c *Config) GetBaseURL() string {
-	return c.HostURL + c.APIPath
+// GetDefaultInstance returns the default instance or the first one if no default is set
+func (c *Config) GetDefaultInstance() *Instance {
+	// First, look for an instance marked as default
+	for i := range c.Instances {
+		if c.Instances[i].Default {
+			return &c.Instances[i]
+		}
+	}
+	
+	// If no default is set, return the first instance
+	if len(c.Instances) > 0 {
+		return &c.Instances[0]
+	}
+	
+	return nil
+}
+
+// GetInstanceByName returns an instance by name
+func (c *Config) GetInstanceByName(name string) *Instance {
+	for i := range c.Instances {
+		if c.Instances[i].Name == name {
+			return &c.Instances[i]
+		}
+	}
+	return nil
+}
+
+// GetBaseURL returns the complete base URL for API calls for an instance
+func (i *Instance) GetBaseURL() string {
+	return i.FQDN + "/api/v1"
 }
 
 var globalConfig *Config
@@ -28,40 +62,45 @@ func Load() (*Config, error) {
 		return globalConfig, nil
 	}
 
-	// Set config file name and paths
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-
-	// Add config search paths
+	// Get config file path
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
-
+	
 	configDir := filepath.Join(homeDir, ".coolify-cli")
-	viper.AddConfigPath(configDir)
-	viper.AddConfigPath(".")
-
-	// Set defaults
-	viper.SetDefault("host_url", "https://app.coolify.io")
-	viper.SetDefault("api_path", "/api/v1")
+	configPath := filepath.Join(configDir, "config.json")
 
 	// Try to read config file
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			// Config file not found, create default config
-			return createDefaultConfig(configDir)
-		}
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Config file not found, create default config
+		return createDefaultConfig(configDir)
+	}
+
+	// Read and parse JSON config
+	data, err := os.ReadFile(configPath)
+	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
 	var config Config
-	if err := viper.Unmarshal(&config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config JSON: %w", err)
 	}
 
-	if config.APIKey == "" {
-		return nil, fmt.Errorf("API key is required. Please set it in the config file at %s/config.yaml", configDir)
+	// Validate that we have at least one instance
+	if len(config.Instances) == 0 {
+		return nil, fmt.Errorf("no Coolify instances configured. Please add at least one instance to %s", configPath)
+	}
+
+	// Check that default instance has a token
+	defaultInstance := config.GetDefaultInstance()
+	if defaultInstance == nil {
+		return nil, fmt.Errorf("no default instance found in config")
+	}
+	
+	if defaultInstance.Token == "" {
+		return nil, fmt.Errorf("token is required for default instance '%s'. Please set it in %s", defaultInstance.Name, configPath)
 	}
 
 	globalConfig = &config
@@ -75,28 +114,45 @@ func createDefaultConfig(configDir string) (*Config, error) {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	configPath := filepath.Join(configDir, "config.yaml")
+	configPath := filepath.Join(configDir, "config.json")
 
-	// Create default config content
-	defaultConfig := `# Coolify CLI Configuration
-# Get your API key from your Coolify instance
-api_key: "your-api-key-here"
+	// Create default config structure
+	defaultConfig := Config{
+		Instances: []Instance{
+			{
+				FQDN:    "https://app.coolify.io",
+				Name:    "cloud",
+				Token:   "",
+			},
+			{
+				FQDN:    "http://localhost:8000",
+				Name:    "localhost",
+				Token:   "",
+			},
+			{
+				FQDN:    "https://coolify.yourdomain.com",
+				Name:    "yourdomain",
+				Token:   "your-token-here",
+				Default: true,
+			},
+		},
+		LastUpdateCheckTime: time.Now(),
+	}
 
-# Your Coolify instance URL (without /api/v1)
-host_url: "https://app.coolify.io"
+	// Marshal to pretty JSON
+	data, err := json.MarshalIndent(defaultConfig, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal default config: %w", err)
+	}
 
-# API path (usually /api/v1)
-api_path: "/api/v1"
-`
-
-	if err := os.WriteFile(configPath, []byte(defaultConfig), 0600); err != nil {
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return nil, fmt.Errorf("failed to create default config file: %w", err)
 	}
 
 	fmt.Printf("Created default config file at: %s\n", configPath)
-	fmt.Println("Please edit the config file and set your API key.")
+	fmt.Println("Please edit the config file and set your tokens for the instances you want to use.")
 
-	return nil, fmt.Errorf("please configure your API key in %s", configPath)
+	return nil, fmt.Errorf("please configure your tokens in %s", configPath)
 }
 
 // GetConfig returns the loaded configuration

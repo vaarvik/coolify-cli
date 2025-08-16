@@ -29,6 +29,7 @@ var (
 	noColor    bool
 	compact    bool
 	requestIDs bool
+	instance   string
 )
 
 func init() {
@@ -41,6 +42,7 @@ func init() {
 	logsCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	logsCmd.Flags().BoolVarP(&compact, "compact", "c", false, "Compact output (less spacing)")
 	logsCmd.Flags().BoolVarP(&requestIDs, "request-ids", "r", false, "Show request IDs")
+	logsCmd.Flags().StringVarP(&instance, "instance", "i", "", "Coolify instance to use (default: use default instance)")
 }
 
 func runLogsCommand(cmd *cobra.Command, args []string) error {
@@ -51,8 +53,14 @@ func runLogsCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid application ID format: %s", applicationID)
 	}
 
-	// Create client
-	c, err := client.NewClient()
+	// Create client for the specified instance
+	var c *client.Client
+	var err error
+	if instance != "" {
+		c, err = client.NewClientForInstance(instance)
+	} else {
+		c, err = client.NewClient()
+	}
 	if err != nil {
 		return fmt.Errorf("failed to create client: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -49,23 +50,32 @@ func runConfigShowCommand(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-
-	fmt.Println("Current Configuration:")
-	fmt.Printf("  Host URL:   %s\n", cfg.HostURL)
-	fmt.Printf("  API Path:   %s\n", cfg.APIPath)
-	fmt.Printf("  Full URL:   %s\n", cfg.GetBaseURL())
-
-	// Mask the API key for security
-	apiKey := cfg.APIKey
-	if len(apiKey) > 8 {
-		apiKey = apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
-	}
-	fmt.Printf("  API Key:  %s\n", apiKey)
-
-	// Show config file location
+	
 	homeDir, _ := os.UserHomeDir()
-	configPath := filepath.Join(homeDir, ".coolify-cli", "config.yaml")
-	fmt.Printf("  Config:   %s\n", configPath)
+	fmt.Println("Current Configuration:")
+	fmt.Printf("  Config file: %s\n", filepath.Join(homeDir, ".coolify-cli", "config.json"))
+	fmt.Printf("  Last update check: %s\n", cfg.LastUpdateCheckTime.Format("2006-01-02 15:04:05"))
+	fmt.Println("\nInstances:")
+	
+	for i, instance := range cfg.Instances {
+		prefix := "  "
+		if instance.Default {
+			prefix = "* "
+		}
+		fmt.Printf("%s[%d] %s\n", prefix, i+1, instance.Name)
+		fmt.Printf("    FQDN: %s\n", instance.FQDN)
+		fmt.Printf("    Full URL: %s\n", instance.GetBaseURL())
+		
+		// Mask the token for security
+		token := instance.Token
+		if len(token) > 8 {
+			token = token[:4] + "..." + token[len(token)-4:]
+		} else if token == "" {
+			token = "(not configured)"
+		}
+		fmt.Printf("    Token: %s\n", token)
+		fmt.Println()
+	}
 
 	return nil
 }
@@ -94,39 +104,27 @@ func runConfigInitCommand(cmd *cobra.Command, args []string) error {
 	}
 
 	configDir := filepath.Join(homeDir, ".coolify-cli")
-	configPath := filepath.Join(configDir, "config.yaml")
-
+	configPath := filepath.Join(configDir, "config.json")
+	
 	// Check if config file already exists
 	if _, err := os.Stat(configPath); err == nil {
 		fmt.Printf("Configuration file already exists at: %s\n", configPath)
 		fmt.Println("Use 'coolify-cli config show' to view current settings.")
 		return nil
 	}
-
-	// Create config directory if it doesn't exist
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+	
+	// Try to create the default config (this will handle directory creation)
+	_, err = config.Load() // This will trigger createDefaultConfig if file doesn't exist
+	if err != nil {
+		// Expected error when config is created but not configured
+		if strings.Contains(err.Error(), "please configure your tokens") {
+			fmt.Printf("✅ Configuration file created at: %s\n", configPath)
+			fmt.Println("📝 Please edit the file and set your tokens for the instances you want to use.")
+			fmt.Println("🧪 Use 'coolify-cli config test' to verify your configuration.")
+			return nil
+		}
+		return err
 	}
-
-	// Create default config content
-	defaultConfig := `# Coolify CLI Configuration
-# Get your API key from your Coolify instance
-api_key: "your-api-key-here"
-
-# Your Coolify instance URL (without /api/v1)
-host_url: "https://app.coolify.io"
-
-# API path (usually /api/v1)
-api_path: "/api/v1"
-`
-
-	if err := os.WriteFile(configPath, []byte(defaultConfig), 0600); err != nil {
-		return fmt.Errorf("failed to create config file: %w", err)
-	}
-
-	fmt.Printf("✅ Configuration file created at: %s\n", configPath)
-	fmt.Println("📝 Please edit the file and set your API key.")
-	fmt.Println("🧪 Use 'coolify-cli config test' to verify your configuration.")
 
 	return nil
 }

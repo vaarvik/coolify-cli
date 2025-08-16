@@ -25,11 +25,23 @@ A simple command-line interface for interacting with your Coolify instance.
    ./coolify-cli config init
    ```
 
-2. Edit the configuration file at `~/.coolify-cli/config.yaml`:
-   ```yaml
-   api_key: "your-actual-api-key-here"
-   host_url: "https://app.coolify.io"
-   api_path: "/api/v1"
+2. Edit the configuration file at `~/.coolify-cli/config.json`:
+   ```json
+   {
+     "instances": [
+       {
+         "fqdn": "https://app.coolify.io",
+         "name": "cloud",
+         "token": "your-token-here"
+       },
+       {
+         "default": true,
+         "fqdn": "https://coolify.yourdomain.com", 
+         "name": "yourdomain",
+         "token": "your-token-here"
+       }
+     ]
+   }
    ```
 
 3. Test your configuration:
@@ -62,19 +74,39 @@ A simple command-line interface for interacting with your Coolify instance.
 
 ## Configuration File
 
-The CLI uses a YAML configuration file located at `~/.coolify-cli/config.yaml`:
+The CLI uses a JSON configuration file located at `~/.coolify-cli/config.json`:
 
-```yaml
-# Coolify CLI Configuration
-# Get your API key from your Coolify instance
-api_key: "your-api-key-here"
-
-# Your Coolify instance URL (without /api/v1)
-host_url: "https://app.coolify.io"
-
-# API path (usually /api/v1)
-api_path: "/api/v1"
+```json
+{
+  "instances": [
+    {
+      "fqdn": "https://app.coolify.io",
+      "name": "cloud",
+      "token": ""
+    },
+    {
+      "fqdn": "http://localhost:8000",
+      "name": "localhost", 
+      "token": ""
+    },
+    {
+      "default": true,
+      "fqdn": "https://coolify.yourdomain.com",
+      "name": "yourdomain",
+      "token": "your-token-here"
+    }
+  ],
+  "lastupdatechecktime": "2025-08-16T09:38:20.429802+02:00"
+}
 ```
+
+### Multiple Instance Support
+
+- **instances**: Array of Coolify instances you can connect to
+- **default**: Mark one instance as default (used when no instance is specified)
+- **fqdn**: Full URL of your Coolify instance
+- **name**: Friendly name for the instance
+- **token**: API token for authentication
 
 ## API Key Security
 

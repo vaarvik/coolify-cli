@@ -14,7 +14,7 @@ import (
 // Client represents the Coolify API client
 type Client struct {
 	httpClient *http.Client
-	config     *config.Config
+	instance   *config.Instance
 }
 
 // LogEntry represents a single log entry from the Coolify API
@@ -45,24 +45,42 @@ type ParsedLogLine struct {
 	Raw       string
 }
 
-// NewClient creates a new Coolify API client
+// NewClient creates a new Coolify API client using the default instance
 func NewClient() (*Client, error) {
+	return NewClientForInstance("")
+}
+
+// NewClientForInstance creates a new Coolify API client for a specific instance
+func NewClientForInstance(instanceName string) (*Client, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	var instance *config.Instance
+	if instanceName == "" {
+		instance = cfg.GetDefaultInstance()
+		if instance == nil {
+			return nil, fmt.Errorf("no default instance configured")
+		}
+	} else {
+		instance = cfg.GetInstanceByName(instanceName)
+		if instance == nil {
+			return nil, fmt.Errorf("instance '%s' not found in config", instanceName)
+		}
 	}
 
 	return &Client{
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		config: cfg,
+		instance: instance,
 	}, nil
 }
 
 // makeRequest performs an HTTP request with Bearer token authentication
 func (c *Client) makeRequest(method, endpoint string) (*http.Response, error) {
-	url := fmt.Sprintf("%s%s", c.config.GetBaseURL(), endpoint)
+	url := fmt.Sprintf("%s%s", c.instance.GetBaseURL(), endpoint)
 
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
@@ -70,7 +88,7 @@ func (c *Client) makeRequest(method, endpoint string) (*http.Response, error) {
 	}
 
 	// Add Bearer token authentication
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.instance.Token))
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "coolify-cli/1.0")
 
