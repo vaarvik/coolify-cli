@@ -12,13 +12,15 @@ import (
 )
 
 var logsCmd = &cobra.Command{
-	Use:   "logs [application-id]",
+	Use:   "logs [application-uuid-or-name]",
 	Short: "Fetch logs for a Coolify application",
 	Long: `Fetch and display logs for a specific Coolify application.
-You need to provide the application ID as an argument.
+You can provide either the application UUID or name as an argument.
+If using a name, it must be unique across all applications.
 
-Example:
-  coolify-cli logs nk4kcskcsswg0wskk88skcsg`,
+Examples:
+  coolify-cli logs nk4kcskcsswg0wskk88skcsg
+  coolify-cli logs my-app-name`,
 	Args: cobra.ExactArgs(1),
 	RunE: runLogsCommand,
 }
@@ -47,12 +49,7 @@ func init() {
 }
 
 func runLogsCommand(cmd *cobra.Command, args []string) error {
-	applicationID := args[0]
-
-	// Validate application ID format (basic validation)
-	if len(applicationID) < 10 {
-		return fmt.Errorf("invalid application ID format: %s", applicationID)
-	}
+	applicationIdentifier := args[0]
 
 	// Create client for the specified instance
 	var c *client.Client
@@ -66,18 +63,22 @@ func runLogsCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create client: %w", err)
 	}
 
-	// Skip connection test and try to fetch logs directly
+	// Resolve application identifier to UUID
+	applicationUUID, err := resolveApplicationIdentifier(c, applicationIdentifier)
+	if err != nil {
+		return err
+	}
 
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	if verbose {
-		fmt.Printf("Fetching logs for application: %s\n", applicationID)
+		fmt.Printf("Fetching logs for application: %s (UUID: %s)\n", applicationIdentifier, applicationUUID)
 	}
 
 	if follow {
-		return followLogs(c, applicationID, verbose)
+		return followLogs(c, applicationUUID, verbose)
 	}
 
-	return fetchLogs(c, applicationID, verbose)
+	return fetchLogs(c, applicationUUID, verbose)
 }
 
 func fetchLogs(c *client.Client, applicationID string, verbose bool) error {
@@ -180,6 +181,38 @@ func displayLogs(logs []client.ParsedLogLine, logFormatter *formatter.LogFormatt
 			}
 		}
 	}
+}
+
+// resolveApplicationIdentifier resolves an application identifier (UUID or name) to a UUID
+func resolveApplicationIdentifier(c *client.Client, identifier string) (string, error) {
+	// If it looks like a UUID (long string), use it directly
+	if len(identifier) >= 20 {
+		return identifier, nil
+	}
+
+	// Otherwise, treat it as a name and look it up
+	apps, err := c.GetApplications()
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch applications: %w", err)
+	}
+
+	var matchingApps []string
+	for _, app := range apps {
+		if app.Name == identifier {
+			matchingApps = append(matchingApps, app.UUID)
+		}
+	}
+
+	if len(matchingApps) == 0 {
+		return "", fmt.Errorf("no application found with name '%s'", identifier)
+	}
+
+	if len(matchingApps) > 1 {
+		return "", fmt.Errorf("multiple applications found with name '%s'. Please use the UUID instead:\n%s",
+			identifier, strings.Join(matchingApps, "\n"))
+	}
+
+	return matchingApps[0], nil
 }
 
 // isTerminal checks if output is going to a terminal (for color detection)
