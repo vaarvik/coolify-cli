@@ -91,12 +91,12 @@ func fetchLogs(c *client.Client, applicationID string, verbose bool) error {
 		return fmt.Errorf("failed to fetch logs: %w", err)
 	}
 
-	if len(logs) == 0 {
+	if logs == "" {
 		fmt.Println("No logs found for this application.")
 		return nil
 	}
 
-	// Create formatter
+	// Create formatter for beautiful output
 	colorOutput := !noColor && isTerminal()
 	logFormatter := formatter.NewLogFormatter(colorOutput, timestamps, requestIDs, compact)
 
@@ -108,14 +108,14 @@ func fetchLogs(c *client.Client, applicationID string, verbose bool) error {
 		}
 	}
 
-	// Display logs
-	displayLogs(logs, logFormatter)
+	// Format and display the raw logs beautifully
+	displayFormattedLogs(logs, logFormatter)
 
 	return nil
 }
 
 func followLogs(c *client.Client, applicationID string, verbose bool) error {
-	// Create formatter
+	// Create formatter for beautiful output
 	colorOutput := !noColor && isTerminal()
 	logFormatter := formatter.NewLogFormatter(colorOutput, timestamps, requestIDs, compact)
 
@@ -128,11 +128,9 @@ func followLogs(c *client.Client, applicationID string, verbose bool) error {
 		fmt.Println()
 	}
 
-	// Implement improved polling with shorter intervals for better responsiveness
+	// Simple polling approach - just replace all logs every second
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-
-	var seenLines map[string]bool = make(map[string]bool)
 
 	for {
 		select {
@@ -150,36 +148,72 @@ func followLogs(c *client.Client, applicationID string, verbose bool) error {
 				continue
 			}
 
-			// Show only new unique logs
-			var newLogs []client.ParsedLogLine
-			for _, log := range logs {
-				// Use a combination of timestamp and message as unique identifier
-				logKey := fmt.Sprintf("%s_%s", log.Timestamp, log.Message)
-				if !seenLines[logKey] {
-					seenLines[logKey] = true
-					newLogs = append(newLogs, log)
+			// Always refresh - clear screen and show all logs
+			fmt.Print("\033[2J\033[H") // Clear screen and move cursor to top
+
+			if verbose {
+				fmt.Println(logFormatter.FormatHeader(applicationID))
+				if sep := logFormatter.FormatSeparator(); sep != "" {
+					fmt.Println(sep)
 				}
+				fmt.Println("Following logs... (Press Ctrl+C to stop)")
+				fmt.Println()
 			}
 
-			if len(newLogs) > 0 {
-				displayLogs(newLogs, logFormatter)
-			}
+			// Format and display the raw logs beautifully
+			displayFormattedLogs(logs, logFormatter)
 		}
 	}
 }
 
-func displayLogs(logs []client.ParsedLogLine, logFormatter *formatter.LogFormatter) {
-	for _, log := range logs {
-		formattedLine := logFormatter.FormatLogLine(log)
+// displayFormattedLogs takes raw log content and applies beautiful formatting
+func displayFormattedLogs(rawLogs string, logFormatter *formatter.LogFormatter) {
+	if rawLogs == "" {
+		return
+	}
+
+	// Split raw logs into individual lines
+	lines := strings.Split(rawLogs, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Parse each line for formatting while keeping the original content
+		parsedLine := parseLogLine(line)
+
+		// Format and display the line beautifully
+		formattedLine := logFormatter.FormatLogLine(parsedLine)
 		fmt.Println(formattedLine)
 
 		// Add spacing between logs if not in compact mode
 		if !compact {
 			// Only add spacing for request/response pairs
-			if log.Status != "" || (log.Method != "" && log.URL != "") {
-				// Don't add extra spacing
+			if parsedLine.Status != "" || (parsedLine.Method != "" && parsedLine.URL != "") {
+				// Don't add extra spacing for now
 			}
 		}
+	}
+}
+
+// parseLogLine parses a single raw log line into structured data for formatting
+func parseLogLine(line string) client.ParsedLogLine {
+	// Create a temporary client to use the existing parsing logic
+	c := &client.Client{}
+
+	// Use the existing parsing logic but for a single line
+	parsed := c.ParseLogContent(line)
+	if len(parsed) > 0 {
+		return parsed[0]
+	}
+
+	// Fallback - return raw line
+	return client.ParsedLogLine{
+		Raw:     line,
+		Level:   "INFO",
+		Message: line,
 	}
 }
 

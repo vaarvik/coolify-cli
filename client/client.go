@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -159,38 +160,38 @@ func (c *Client) GetApplications() ([]Application, error) {
 	return apps, nil
 }
 
-// GetApplicationLogs fetches logs for a specific application
-func (c *Client) GetApplicationLogs(applicationID string) ([]ParsedLogLine, error) {
+// GetApplicationLogs fetches logs for a specific application and returns raw log content
+func (c *Client) GetApplicationLogs(applicationID string) (string, error) {
 	endpoint := fmt.Sprintf("/applications/%s/logs", applicationID)
 
 	resp, err := c.makeRequest("GET", endpoint)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	// Parse the JSON response
 	var logsResponse LogsResponse
 	if err := json.Unmarshal(body, &logsResponse); err != nil {
-		return nil, fmt.Errorf("failed to parse logs response: %w", err)
+		return "", fmt.Errorf("failed to parse logs response: %w", err)
 	}
 
-	// Parse the log content
-	return c.parseLogContent(logsResponse.Logs), nil
+	// Return the raw log content exactly as received
+	return logsResponse.Logs, nil
 }
 
-// parseLogContent parses the raw log content and extracts structured information
-func (c *Client) parseLogContent(logContent string) []ParsedLogLine {
+// ParseLogContent parses the raw log content and extracts structured information
+func (c *Client) ParseLogContent(logContent string) []ParsedLogLine {
 	if logContent == "" {
 		return []ParsedLogLine{}
 	}
@@ -202,9 +203,19 @@ func (c *Client) parseLogContent(logContent string) []ParsedLogLine {
 	lines := strings.Split(cleanContent, "\n")
 	var parsedLines []ParsedLogLine
 
-	// Regex patterns for different log formats
-	infoPattern := regexp.MustCompile(`INFO \((\d+)\): ([a-f0-9-]+) (GET|POST|PUT|DELETE|PATCH) (http://[^\s]+) - (\d+) query params, (\d+) body keys`)
-	responsePattern := regexp.MustCompile(`INFO \((\d+)\): ([a-f0-9-]+) Response: (\d+)`)
+	// Regex patterns for different log formats (updated to match actual Coolify log format)
+	// HTTP request pattern: INFO (18): uuid GET http://... - N query params, N body keys
+	httpRequestPattern := regexp.MustCompile(`INFO \((\d+)\): ([a-f0-9-]+) (GET|POST|PUT|DELETE|PATCH) (http://[^\s]+) - (\d+) query params, (\d+) body keys`)
+	// HTTP response pattern: INFO (18): uuid Response: 200
+	httpResponsePattern := regexp.MustCompile(`INFO \((\d+)\): ([a-f0-9-]+) Response: (\d+)`)
+	// Auth pattern: INFO (18): uuid Auth via Bearer Token
+	authPattern := regexp.MustCompile(`INFO \((\d+)\): ([a-f0-9-]+) Auth via Bearer Token`)
+	// Generic INFO pattern: INFO (18): uuid message
+	genericInfoPattern := regexp.MustCompile(`INFO \((\d+)\): ([a-f0-9-]+) (.+)`)
+	// TraceId pattern: traceId: "uuid"
+	traceIdPattern := regexp.MustCompile(`^\s*traceId: "([a-f0-9-]+)"`)
+	// Generic INFO without request ID: INFO (18): message
+	simpleInfoPattern := regexp.MustCompile(`INFO \((\d+)\): (.+)`)
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -214,32 +225,120 @@ func (c *Client) parseLogContent(logContent string) []ParsedLogLine {
 
 		parsedLine := ParsedLogLine{
 			Raw:       line,
-			Timestamp: time.Now().Format("2006-01-02 15:04:05"),
+			Timestamp: c.extractTimestamp(line),
 		}
 
-		// Try to match INFO request pattern
-		if matches := infoPattern.FindStringSubmatch(line); len(matches) > 0 {
+		// Try to match different log patterns in order of specificity
+		if matches := httpRequestPattern.FindStringSubmatch(line); len(matches) > 0 {
+			// HTTP request: INFO (18): uuid GET http://... - N query params, N body keys
 			parsedLine.Level = "INFO"
 			parsedLine.RequestID = matches[2]
 			parsedLine.Method = matches[3]
 			parsedLine.URL = matches[4]
 			parsedLine.Message = fmt.Sprintf("%s %s", matches[3], matches[4])
-		} else if matches := responsePattern.FindStringSubmatch(line); len(matches) > 0 {
-			// Match response pattern
+		} else if matches := httpResponsePattern.FindStringSubmatch(line); len(matches) > 0 {
+			// HTTP response: INFO (18): uuid Response: 200
 			parsedLine.Level = "INFO"
 			parsedLine.RequestID = matches[2]
 			parsedLine.Status = matches[3]
 			parsedLine.Message = fmt.Sprintf("Response: %s", matches[3])
-		} else {
-			// Generic log line
+		} else if matches := authPattern.FindStringSubmatch(line); len(matches) > 0 {
+			// Auth: INFO (18): uuid Auth via Bearer Token
 			parsedLine.Level = "INFO"
-			parsedLine.Message = line
+			parsedLine.RequestID = matches[2]
+			parsedLine.Message = "Auth via Bearer Token"
+		} else if matches := traceIdPattern.FindStringSubmatch(line); len(matches) > 0 {
+			// TraceId: traceId: "uuid"
+			parsedLine.Level = "INFO"
+			parsedLine.RequestID = matches[1]
+			parsedLine.Message = fmt.Sprintf("traceId: \"%s\"", matches[1])
+		} else if matches := genericInfoPattern.FindStringSubmatch(line); len(matches) > 0 {
+			// Generic INFO with request ID: INFO (18): uuid message
+			parsedLine.Level = "INFO"
+			parsedLine.RequestID = matches[2]
+			parsedLine.Message = matches[3]
+		} else if matches := simpleInfoPattern.FindStringSubmatch(line); len(matches) > 0 {
+			// Simple INFO without request ID: INFO (18): message
+			parsedLine.Level = "INFO"
+			parsedLine.Message = matches[2]
+		} else {
+			// Generic log line - extract timestamp and keep as-is
+			parsedLine.Level = "INFO"
+			// Remove timestamp from message if it was at the beginning
+			message := line
+			if timestampMatch := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?\s*`).FindString(line); timestampMatch != "" {
+				message = strings.TrimSpace(strings.TrimPrefix(line, timestampMatch))
+			}
+			parsedLine.Message = message
 		}
 
 		parsedLines = append(parsedLines, parsedLine)
 	}
 
 	return parsedLines
+}
+
+// extractTimestamp attempts to extract a timestamp from a log line
+// Supports multiple common timestamp formats and falls back to current time
+func (c *Client) extractTimestamp(line string) string {
+	// Common timestamp patterns (ordered by specificity)
+	timestampPatterns := []struct {
+		regex  *regexp.Regexp
+		layout string
+	}{
+		// Coolify format with nanoseconds: 2025-08-19T06:49:35.131504808Z
+		{regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z)`), "2006-01-02T15:04:05.000000000Z"},
+		// ISO 8601 with microseconds: 2024-01-15T14:30:45.123456Z
+		{regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z?)`), "2006-01-02T15:04:05.000000Z"},
+		// ISO 8601 with milliseconds: 2024-01-15T14:30:45.123Z
+		{regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z?)`), "2006-01-02T15:04:05.000Z"},
+		// ISO 8601 basic: 2024-01-15T14:30:45Z
+		{regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z?)`), "2006-01-02T15:04:05Z"},
+		// ISO 8601 with timezone: 2024-01-15T14:30:45+00:00
+		{regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})`), "2006-01-02T15:04:05-07:00"},
+		// Docker/Container logs: 2024-01-15 14:30:45
+		{regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})`), "2006-01-02 15:04:05"},
+		// Syslog format: Jan 15 14:30:45
+		{regexp.MustCompile(`^([A-Za-z]{3} \d{1,2} \d{2}:\d{2}:\d{2})`), "Jan 2 15:04:05"},
+		// Unix timestamp with brackets: [1705329045]
+		{regexp.MustCompile(`^\[(\d{10})\]`), "unix"},
+		// Timestamp at beginning with brackets: [2024-01-15 14:30:45]
+		{regexp.MustCompile(`^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]`), "2006-01-02 15:04:05"},
+		// Timestamp at beginning: 2024/01/15 14:30:45
+		{regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})`), "2006/01/02 15:04:05"},
+	}
+
+	for _, pattern := range timestampPatterns {
+		if matches := pattern.regex.FindStringSubmatch(line); len(matches) > 1 {
+			timestampStr := matches[1]
+
+			// Handle Unix timestamp specially
+			if pattern.layout == "unix" {
+				if unixSeconds, err := strconv.ParseInt(timestampStr, 10, 64); err == nil {
+					unixTime := time.Unix(unixSeconds, 0)
+					return unixTime.Format("2006-01-02 15:04:05")
+				}
+				continue
+			}
+
+			// Try to parse with the specified layout
+			if parsedTime, err := time.Parse(pattern.layout, timestampStr); err == nil {
+				return parsedTime.Format("2006-01-02 15:04:05")
+			}
+
+			// If parsing fails, try with current year for formats like "Jan 15 14:30:45"
+			if pattern.layout == "Jan 2 15:04:05" {
+				currentYear := time.Now().Year()
+				fullTimestamp := fmt.Sprintf("%d %s", currentYear, timestampStr)
+				if parsedTime, err := time.Parse("2006 Jan 2 15:04:05", fullTimestamp); err == nil {
+					return parsedTime.Format("2006-01-02 15:04:05")
+				}
+			}
+		}
+	}
+
+	// If no timestamp pattern matches, fall back to current time
+	return time.Now().Format("2006-01-02 15:04:05")
 }
 
 // TestConnection tests the connection to the Coolify API
