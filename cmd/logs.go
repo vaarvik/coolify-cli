@@ -128,9 +128,13 @@ func followLogs(c *client.Client, applicationID string, verbose bool) error {
 		fmt.Println()
 	}
 
-	// Simple polling approach - just replace all logs every second
+	// Poll and print only new log lines
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+
+	var lastLine string
+	var prevLen int
+	var initialized bool
 
 	for {
 		select {
@@ -148,20 +152,53 @@ func followLogs(c *client.Client, applicationID string, verbose bool) error {
 				continue
 			}
 
-			// Always refresh - clear screen and show all logs
-			fmt.Print("\033[2J\033[H") // Clear screen and move cursor to top
-
-			if verbose {
-				fmt.Println(logFormatter.FormatHeader(applicationID))
-				if sep := logFormatter.FormatSeparator(); sep != "" {
-					fmt.Println(sep)
-				}
-				fmt.Println("Following logs... (Press Ctrl+C to stop)")
-				fmt.Println()
+			lines := strings.Split(logs, "\n")
+			// Drop trailing empty line (common with newline-terminated payloads)
+			if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+				lines = lines[:len(lines)-1]
+			}
+			if len(lines) == 0 {
+				continue
 			}
 
-			// Format and display the raw logs beautifully
-			displayFormattedLogs(logs, logFormatter)
+			startIdx := 0
+			if !initialized {
+				if tail > 0 && len(lines) > tail {
+					startIdx = len(lines) - tail
+				}
+			} else {
+				// Prefer anchor by content: search from end for the last line we printed
+				if lastLine != "" {
+					for i := len(lines) - 1; i >= 0; i-- {
+						if strings.TrimSpace(lines[i]) == strings.TrimSpace(lastLine) {
+							startIdx = i + 1
+							break
+						}
+					}
+				}
+				if startIdx == 0 { // anchor not found
+					if len(lines) > prevLen {
+						// Assume pure append: print the delta by length
+						startIdx = prevLen
+					} else {
+						// Likely rotation/reset: print a reasonable tail
+						if tail > 0 && len(lines) > tail {
+							startIdx = len(lines) - tail
+						} else {
+							startIdx = 0
+						}
+					}
+				}
+			}
+
+			if startIdx < len(lines) {
+				segment := strings.Join(lines[startIdx:], "\n")
+				displayFormattedLogs(segment, logFormatter)
+			}
+
+			lastLine = lines[len(lines)-1]
+			prevLen = len(lines)
+			initialized = true
 		}
 	}
 }
